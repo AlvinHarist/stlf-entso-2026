@@ -1,0 +1,58 @@
+# ================================================================
+# STLF-ENTSO-2026  —  Baseline Experiment Configuration
+# ================================================================
+# All experiment notebooks load this file and override paths as
+# needed for the Kaggle environment.
+# ================================================================
+
+# ── Reproducibility ──────────────────────────────────────────────
+seed: 42
+
+# ── Data ─────────────────────────────────────────────────────────
+data:
+  # Default path (overridden at runtime for Kaggle)
+  path: "data/raw/df_combined_AT.csv"
+  timestamp_col: "utc_timestamp"
+  target_col: "AT_load_actual_entsoe_transparency"
+  weather_features:
+    - "temperature_2m (°C)"
+    - "rain (mm)"
+    - "relative_humidity_2m (%)"
+    - "sunshine_duration (s)"
+
+# ── Chronological split ─────────────────────────────────────────
+split:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  # test_ratio is implicitly 1 - train_ratio - val_ratio = 0.1
+
+# ── Preprocessing ───────────────────────────────────────────────
+preprocessing:
+  use_yeojohnson: true
+  skewed_cols:
+    - "rain (mm)"
+    - "sunshine_duration (s)"
+
+# ── Windowing ───────────────────────────────────────────────────
+windowing:
+  lookback: 24    # hours
+  horizon: 24     # hours
+
+# ── Model ───────────────────────────────────────────────────────
+model:
+  units: 64
+  dropout: 0.0
+  learning_rate: 0.001
+
+# ── Training ────────────────────────────────────────────────────
+training:
+  epochs: 200
+  batch_size: 32
+  patience: 15
+
+# ── Probabilistic ──────────────────────────────────────────────
+probabilistic:
+  quantiles:
+    - 0.10
+    - 0.50
+    - 0.90

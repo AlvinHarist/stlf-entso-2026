@@ -236,3 +236,109 @@ def inverse_y(
     result = scaler.inverse_transform(flat).ravel()
 
     return result.reshape(original_shape)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Feature engineering  (leakage-safe)
+# ──────────────────────────────────────────────────────────────────────
+
+def create_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add cyclical temporal features derived purely from the DatetimeIndex.
+
+    No future information is used — each row's features depend only on
+    its own timestamp.  The resulting values are already in [-1, 1], so
+    MinMaxScaler will compress them only slightly.
+
+    Columns added
+    -------------
+    hour_sin, hour_cos       sin/cos(2π·hour/24)
+    dow_sin,  dow_cos        sin/cos(2π·day_of_week/7)
+    month_sin, month_cos     sin/cos(2π·month/12)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must have a ``pd.DatetimeIndex``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of *df* with six new columns appended.
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise TypeError("create_temporal_features requires a DatetimeIndex.")
+
+    out = df.copy()
+    idx = df.index
+
+    out["hour_sin"]   = np.sin(2 * np.pi * idx.hour / 24)
+    out["hour_cos"]   = np.cos(2 * np.pi * idx.hour / 24)
+    out["dow_sin"]    = np.sin(2 * np.pi * idx.dayofweek / 7)
+    out["dow_cos"]    = np.cos(2 * np.pi * idx.dayofweek / 7)
+    out["month_sin"]  = np.sin(2 * np.pi * idx.month / 12)
+    out["month_cos"]  = np.cos(2 * np.pi * idx.month / 12)
+
+    return out
+
+
+def create_lag_features(
+    df: pd.DataFrame,
+    target_col: str,
+    lags: Optional[List[int]] = None,
+) -> pd.DataFrame:
+    """Add seasonal lag features for the target column.
+
+    **Must be called on the FULL DataFrame BEFORE ``chronological_split``.**
+    ``pandas.Series.shift(lag)`` is strictly backwards — it moves the
+    series *forward in index* by ``lag`` steps, meaning
+    ``lag_k[t] = target[t-k]``.  No future values are accessed.
+
+    The first ``max(lags)`` rows will be NaN and are dropped before
+    returning.  Callers should be aware that the resulting DataFrame
+    starts at index ``max(lags)``, not 0.
+
+    Columns added
+    -------------
+    ``lag_{k}`` for each ``k`` in *lags*, where
+    ``lag_{k}[t] = target[t-k]``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Full chronological dataset with a DatetimeIndex.
+    target_col : str
+        Name of the load column to lag.
+    lags : list of int, optional
+        Lag values in hours.  Defaults to ``[24, 168]`` (1-day, 1-week).
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of *df* with lag columns added and NaN rows at the head
+        removed.
+    """
+    if lags is None:
+        lags = [24, 168]
+
+    out = df.copy()
+    for lag in lags:
+        out[f"lag_{lag}"] = out[target_col].shift(lag)
+
+    # Drop rows where any lag is NaN (at the start of the series)
+    n_before = len(out)
+    out = out.dropna(subset=[f"lag_{lag}" for lag in lags])
+    n_dropped = n_before - len(out)
+    print(f"[create_lag_features] Dropped {n_dropped} leading NaN rows "
+          f"(max lag = {max(lags)}).  Remaining: {len(out)} rows.")
+
+    return out
+
+
+TEMPORAL_FEATURE_COLS = [
+    "hour_sin", "hour_cos",
+    "dow_sin",  "dow_cos",
+    "month_sin", "month_cos",
+]
+
+LAG_FEATURE_COLS_DEFAULT = ["lag_24", "lag_168"]
+
